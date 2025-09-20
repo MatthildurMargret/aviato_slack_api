@@ -64,8 +64,15 @@ def search_aviato_companies(search_filters):
         filter_conditions.append({"locationIDList": {"operation": "in", "value": search_filters["locationIDList"]}})
         logger.info(f"Added locationIDList filter: {search_filters['locationIDList']}")
     if "industryList" in search_filters:
-        filter_conditions.append({"industryList": {"operation": "in", "value": search_filters["industryList"]}})
-        logger.info(f"Added industryList filter: {search_filters['industryList']}")
+        # Apply AND between industries: create one eq filter per industry value
+        industries_value = search_filters["industryList"]
+        if isinstance(industries_value, list):
+            for industry in industries_value:
+                filter_conditions.append({"industryList": {"operation": "eq", "value": industry}})
+            logger.info(f"Added industryList filters (AND across industries): {industries_value}")
+        else:
+            filter_conditions.append({"industryList": {"operation": "eq", "value": industries_value}})
+            logger.info(f"Added industryList filter: {industries_value}")
     if "website" in search_filters:
         filter_conditions.append({"website": {"operation": "eq", "value": search_filters["website"]}})
         logger.info(f"Added website filter: {search_filters['website']}")
