@@ -3,11 +3,33 @@ import os
 import logging
 import json 
 import dotenv
+import time
+from threading import Lock
 
 dotenv.load_dotenv()
 
 aviato_api = os.getenv("AVIATO_API_KEY")
 logger = logging.getLogger(__name__)
+
+# Global rate limiter to track API calls across all functions
+_last_api_call_time = 0
+_api_call_lock = Lock()
+_min_delay_between_calls = 2.0  # 2 seconds between ANY API calls (increased from 1s)
+
+
+def _wait_for_rate_limit():
+    """Global rate limiter - ensures minimum delay between ANY API calls"""
+    global _last_api_call_time
+    
+    with _api_call_lock:
+        current_time = time.time()
+        time_since_last_call = current_time - _last_api_call_time
+        
+        if time_since_last_call < _min_delay_between_calls:
+            sleep_time = _min_delay_between_calls - time_since_last_call
+            time.sleep(sleep_time)
+        
+        _last_api_call_time = time.time()
 
 
 def get_linkedin_id(company_linkedin_url):
@@ -135,14 +157,92 @@ def get_acq(company_id):
         
 
 def get_founders(company_id):
-    response = requests.get(
-            "https://data.api.aviato.co/company/" + company_id + "/founders?perPage=100&page=1",
-            headers={
-                "Authorization": "Bearer " + aviato_api
-            },
-    )
-    result = response.json()
-    return result["founders"]
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                # Exponential backoff: 5s, 10s, 20s
+                retry_delay = 5 * (2 ** (attempt - 1))
+                logger.info(f"Retrying get_founders for {company_id} after {retry_delay}s delay (attempt {attempt + 1}/{max_retries})")
+                time.sleep(retry_delay)
+            
+            # Use global rate limiter
+            _wait_for_rate_limit()
+            
+            response = requests.get(
+                    "https://data.api.aviato.co/company/" + company_id + "/founders?perPage=100&page=1",
+                    headers={
+                        "Authorization": "Bearer " + aviato_api
+                    },
+            )
+            
+            if response.status_code == 429:
+                # Rate limited - retry with backoff
+                if attempt < max_retries - 1:
+                    continue
+                else:
+                    logger.warning(f"get_founders rate limited for company {company_id} after {max_retries} attempts")
+                    return []
+            
+            if response.status_code != 200:
+                logger.warning(f"get_founders returned status {response.status_code} for company {company_id}")
+                return []
+            
+            result = response.json()
+            return result.get("founders", [])
+            
+        except Exception as e:
+            logger.warning(f"get_founders error for company {company_id}: {e}")
+            if attempt < max_retries - 1:
+                continue
+            return []
+    
+    return []
+
+def get_employees(company_id):
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                # Exponential backoff: 5s, 10s, 20s
+                retry_delay = 5 * (2 ** (attempt - 1))
+                logger.info(f"Retrying get_employees for {company_id} after {retry_delay}s delay (attempt {attempt + 1}/{max_retries})")
+                time.sleep(retry_delay)
+            
+            # Use global rate limiter
+            _wait_for_rate_limit()
+            
+            response = requests.get(
+                    "https://data.api.aviato.co/company/" + company_id + "/employees?perPage=100&page=1",
+                    headers={
+                        "Authorization": "Bearer " + aviato_api
+                    },
+            )
+            
+            if response.status_code == 429:
+                # Rate limited - retry with backoff
+                if attempt < max_retries - 1:
+                    continue
+                else:
+                    logger.warning(f"get_employees rate limited for company {company_id} after {max_retries} attempts")
+                    return []
+            
+            if response.status_code != 200:
+                logger.warning(f"get_employees returned status {response.status_code} for company {company_id}")
+                return []
+            
+            result = response.json()
+            return result.get("employees", [])
+            
+        except Exception as e:
+            logger.warning(f"get_employees error for company {company_id}: {e}")
+            if attempt < max_retries - 1:
+                continue
+            return []
+    
+    return []
 
 def get_investors(company_id):
     response = requests.get(

@@ -83,8 +83,17 @@ def search_aviato_companies(search_filters):
         filter_conditions.append({"twitter": {"operation": "eq", "value": search_filters["twitter"]}})
         logger.info(f"Added twitter filter: {search_filters['twitter']}")
     if "totalFunding" in search_filters:
-        filter_conditions.append({"totalFunding": {"operation": "lte", "value": search_filters["totalFunding"]}})
-        logger.info(f"Added totalFunding filter (lte): {search_filters['totalFunding']}")
+        funding_filter = search_filters["totalFunding"]
+        # Handle both old format (int) and new format (dict with operation)
+        if isinstance(funding_filter, dict):
+            operation = funding_filter.get("operation", "lte")
+            value = funding_filter.get("value")
+            filter_conditions.append({"totalFunding": {"operation": operation, "value": value}})
+            logger.info(f"Added totalFunding filter ({operation}): {value}")
+        else:
+            # Backward compatibility: default to lte
+            filter_conditions.append({"totalFunding": {"operation": "lte", "value": funding_filter}})
+            logger.info(f"Added totalFunding filter (lte): {funding_filter}")
     if "founded" in search_filters:
         # Handle founded date - convert year to ISO datetime format for comparison
         founded_value = search_filters["founded"]

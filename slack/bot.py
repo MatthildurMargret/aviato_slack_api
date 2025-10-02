@@ -13,6 +13,7 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 from dotenv import load_dotenv
 from api.enrich_company import complete_company_enrichment
 from api.search import search_aviato_companies
+from api.prospecting import prospect_companies
 
 load_dotenv()
 
@@ -33,6 +34,10 @@ class SlackBot:
             web_client=self.web_client
         )
         self.socket_mode_client.socket_mode_request_listeners.append(self.handle_socket_mode_request)
+
+        # In-memory session store for prospecting conversations
+        # Keyed by (channel_id, thread_ts)
+        self.prospecting_sessions = {}
 
     async def handle_socket_mode_request(self, client: SocketModeClient, req: SocketModeRequest):
         try:
@@ -86,6 +91,16 @@ class SlackBot:
         channel_type = event.get("channel_type")
 
         if channel_type == "im":
+            # Start prospecting flow
+            if text.lower().strip() == "prospecting":
+                await self.handle_prospecting_start(channel_id, user_id, thread_ts)
+                return
+
+            # If user is in an active prospecting session, handle response
+            if (channel_id, thread_ts) in self.prospecting_sessions:
+                await self.handle_prospecting_response(text, channel_id, user_id, thread_ts)
+                return
+
             if text.lower().startswith("company "):
                 url = text[8:].strip()
                 await self.handle_company_enrichment(url, channel_id, user_id, thread_ts)
@@ -101,15 +116,234 @@ class SlackBot:
 
         text = re.sub(r'<@[A-Z0-9]+>', '', text).strip()
 
-        if text.lower().startswith("company "):
+        if text.lower() == "prospecting":
+            await self.handle_prospecting_start(channel_id, user_id, thread_ts)
+        elif (channel_id, thread_ts) in self.prospecting_sessions:
+            await self.handle_prospecting_response(text, channel_id, user_id, thread_ts)
+        elif text.lower().startswith("company "):
             url = text[8:].strip()
             await self.handle_company_command(url, channel_id, user_id, thread_ts)
         elif not text:
             await self.web_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
-                text="Use `company <URL>` to enrich company data.\nExample: `company https://example.com`"
+                text="Use `company <URL>` to enrich company data.\nExample: `company https://example.com`\nOr type `prospecting` to start a prospecting flow."
             )
+
+    async def handle_prospecting_start(self, channel_id: str, user_id: str, thread_ts: str):
+        """Initiate the prospecting conversational flow."""
+        self.prospecting_sessions[(channel_id, thread_ts)] = {
+            "stage": "awaiting_filters",
+            "user_id": user_id,
+            "filters_text": None,
+            "roles": None,
+        }
+
+        examples = (
+            "Please provide company filters (key:value pairs).\n"
+            "Examples (use ';' between pairs if values contain commas):\n"
+            "- country:United States; industryList:AI, Software; founded:2020\n"
+            "- nameQuery:orchard; totalFunding_gte:5000000\n"
+            "Supported keys: nameQuery, country, region, locality, industryList, website, linkedin, twitter, founded, totalFunding, totalFunding_gte, totalFunding_lte"
+        )
+        await self.web_client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=examples,
+        )
+
+    async def handle_prospecting_response(self, text: str, channel_id: str, user_id: str, thread_ts: str):
+        """Continue the prospecting flow based on current session stage."""
+        session = self.prospecting_sessions.get((channel_id, thread_ts))
+        if not session:
+            return
+
+        stage = session.get("stage")
+        if stage == "awaiting_filters":
+            session["filters_text"] = text.strip()
+            session["stage"] = "awaiting_roles"
+            await self.web_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=(
+                    "What role functions are you targeting? Provide a comma-separated list (e.g., \"Sales, Marketing, Engineering\").\n"
+                    "If you want me to try all roles, reply `skip` (note: email contacts will be limited without role targeting)."
+                ),
+            )
+            return
+
+        if stage == "awaiting_roles":
+            roles_text = text.strip()
+            roles = None
+            if roles_text and roles_text.lower() != "skip":
+                roles = [r.strip() for r in roles_text.split(",") if r.strip()]
+            session["roles"] = roles
+            session["stage"] = "running"
+            await self.run_prospecting(channel_id, user_id, thread_ts, session)
+            # Cleanup
+            self.prospecting_sessions.pop((channel_id, thread_ts), None)
+            return
+
+    async def run_prospecting(self, channel_id: str, user_id: str, thread_ts: str, session: dict):
+        """Execute the prospecting process and return a CSV file."""
+        filters_text = session.get("filters_text") or ""
+        roles = session.get("roles")
+
+        await self.web_client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text="Running prospecting… this can take a bit while I enrich contacts.",
+        )
+
+        try:
+            # Run synchronous prospecting in a thread to avoid blocking the event loop
+            result = await asyncio.to_thread(prospect_companies, filters_text, True, 50, roles)
+
+            items = (result or {}).get("items", [])
+            contacts = (result or {}).get("contacts", [])
+
+            if not items:
+                await self.web_client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    text="No companies found for those filters. Try adjusting and run `prospecting` again.",
+                )
+                return
+
+            # Build CSV content
+            csv_content = self.create_prospecting_csv(result)
+
+            # Write and upload CSV
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as temp_file:
+                temp_file.write(csv_content)
+                temp_file_path = temp_file.name
+
+            filename = f"prospecting_results_{len(items)}_companies_{len(contacts)}_contacts.csv"
+            try:
+                with open(temp_file_path, "rb") as file_content:
+                    await self.web_client.files_upload_v2(
+                        channel=channel_id,
+                        thread_ts=thread_ts,
+                        file=file_content,
+                        filename=filename,
+                        title="Prospecting Results",
+                    )
+            finally:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+
+            # Post summary message
+            contacts_count = (result or {}).get("contacts_count") or len(contacts)
+            note_parts = [
+                f"Found {len(items)} companies",
+                f"{contacts_count} contacts" if contacts_count else "no contacts",
+            ]
+            await self.web_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=", ".join(note_parts) + ". See CSV for details.",
+            )
+
+        except Exception as e:
+            logger.exception(f"Error during prospecting: {e}")
+            await self.web_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=f"Error during prospecting: {str(e)}",
+            )
+
+    def create_prospecting_csv(self, result: dict) -> str:
+        """Create CSV with company + contact info.
+        If contacts are present, output one row per contact.
+        Otherwise, output one row per company.
+        """
+        output = io.StringIO()
+        writer = None
+
+        items = (result or {}).get("items", [])
+        contacts = (result or {}).get("contacts", [])
+        
+        # Build helper map from companyId -> {website, industryList, locality, region, country, totalFunding}
+        company_map = {}
+        for company in items:
+            c = dict(company)
+            # Normalize website like in create_csv_from_results
+            if not c.get('website'):
+                urls_val = c.get('URLs')
+                website_candidate = None
+                try:
+                    if isinstance(urls_val, list) and urls_val:
+                        first_item = urls_val[0]
+                        if isinstance(first_item, str):
+                            website_candidate = first_item
+                        elif isinstance(first_item, dict):
+                            website_candidate = first_item.get('website') or first_item.get('url') or first_item.get('homepage')
+                    elif isinstance(urls_val, dict):
+                        website_candidate = urls_val.get('website') or urls_val.get('url') or urls_val.get('homepage')
+                        if not website_candidate:
+                            for v in urls_val.values():
+                                if isinstance(v, str) and v.startswith(('http://', 'https://')):
+                                    website_candidate = v
+                                    break
+                    elif isinstance(urls_val, str):
+                        website_candidate = urls_val
+                except Exception:
+                    website_candidate = None
+                if website_candidate:
+                    c['website'] = website_candidate
+            company_map[c.get('id')] = {
+                'website': c.get('website'),
+                'industryList': c.get('industryList'),
+                'locality': c.get('locality'),
+                'region': c.get('region'),
+                'country': c.get('country'),
+                'totalFunding': c.get('totalFunding'),
+            }
+
+        if contacts:
+            # Columns for contact-enriched export
+            columns = [
+                "company",
+                "website",
+                "industryList",
+                "companyLocality",
+                "companyRegion",
+                "companyCountry",
+                "totalFunding",
+                "name",
+                "title",
+                "linkedin",
+                "email",
+                "workEmail",
+                "personalEmail",
+            ]
+            writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+            writer.writeheader()
+            for c in contacts:
+                row = c.copy()
+                # Fill website from company map when missing
+                if not row.get('website'):
+                    cm = company_map.get(row.get('companyId'))
+                    if cm and cm.get('website'):
+                        row['website'] = cm.get('website')
+                # Normalize industry list to string for CSV
+                il = row.get("industryList")
+                if isinstance(il, list):
+                    row["industryList"] = ", ".join([str(x) for x in il if x is not None])
+                writer.writerow(row)
+        else:
+            # Fallback: company-only export
+            columns = ["name", "website", "industryList", "locality", "region", "country", "totalFunding"]
+            writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+            writer.writeheader()
+            for company in items:
+                row = company.copy()
+                il = row.get("industryList")
+                if isinstance(il, list):
+                    row["industryList"] = ", ".join([str(x) for x in il if x is not None])
+                writer.writerow(row)
+
+        return output.getvalue()
 
     async def handle_company_command(self, text: str, channel_id: str, user_id: str, thread_ts: str = None):
         if not text:
