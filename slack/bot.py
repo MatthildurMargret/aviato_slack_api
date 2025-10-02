@@ -141,11 +141,23 @@ class SlackBot:
 
         examples = (
             "Let's find some contacts for you. Please provide filters on the companies or types of companies you're interested in (key:value pairs).\n"
-            "Examples (use ';' between pairs if values contain commas):\n"
+            "The available filters are:\n"
+            " - Name: nameQuery\n"
+            " - Country: country\n"
+            " - Region: region\n"
+            " - Locality: locality\n"
+            " - Industry: industryList\n"
+            " - Website: website\n"
+            " - LinkedIn: linkedin\n"
+            " - Twitter: twitter\n"
+            " - Founded: founded\n"
+            " - Total Funding: totalFunding\n"
+            " - Total Funding (Greater Than or Equal To): totalFunding_gte\n"
+            " - Total Funding (Less Than or Equal To): totalFunding_lte\n"
+            "Example usage:\n"
             "- country:United States; industryList:AI, Software; founded:2020\n"
             "- nameQuery:orchard;"
-            "- industryList:Consumer, E-Commerce; founded:2010; totalFunding_gte:5000000;"
-            "Supported keys: nameQuery, country, region, locality, industryList, website, linkedin, twitter, founded, totalFunding, totalFunding_gte, totalFunding_lte"
+            "- industryList:Consumer, E-Commerce; founded:2010; totalFunding_gte:5000000;\n"
         )
         await self.web_client.chat_postMessage(
             channel=channel_id,
@@ -167,7 +179,7 @@ class SlackBot:
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=(
-                    "What role functions are you targeting? Provide a comma-separated list, here are the options:\n"
+                    "Got it. What role functions are you targeting? Provide a comma-separated list, here are the options:\n"
                     "Business development, Sales, Marketing, Engineering, Product, Design, Operations, Finance, Legal, Human Resources, Customer Support, Research.\n"
                     "If you want me to try all roles, reply `skip`."
                 ),
@@ -237,8 +249,7 @@ class SlackBot:
             # Post summary message
             contacts_count = (result or {}).get("contacts_count") or len(contacts)
             note_parts = [
-                f"Found {len(items)} companies",
-                f"{contacts_count} contacts" if contacts_count else "no contacts",
+                f"Found {contacts_count} contacts at {len(items)} companies" if contacts_count else "no contacts"
             ]
             await self.web_client.chat_postMessage(
                 channel=channel_id,
