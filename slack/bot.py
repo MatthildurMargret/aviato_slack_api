@@ -140,10 +140,11 @@ class SlackBot:
         }
 
         examples = (
-            "Please provide company filters (key:value pairs).\n"
+            "Let's find some contacts for you. Please provide filters on the companies or types of companies you're interested in (key:value pairs).\n"
             "Examples (use ';' between pairs if values contain commas):\n"
             "- country:United States; industryList:AI, Software; founded:2020\n"
-            "- nameQuery:orchard; totalFunding_gte:5000000\n"
+            "- nameQuery:orchard;"
+            "- industryList:Consumer, E-Commerce; founded:2010; totalFunding_gte:5000000;"
             "Supported keys: nameQuery, country, region, locality, industryList, website, linkedin, twitter, founded, totalFunding, totalFunding_gte, totalFunding_lte"
         )
         await self.web_client.chat_postMessage(
@@ -166,8 +167,9 @@ class SlackBot:
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=(
-                    "What role functions are you targeting? Provide a comma-separated list (e.g., \"Sales, Marketing, Engineering\").\n"
-                    "If you want me to try all roles, reply `skip` (note: email contacts will be limited without role targeting)."
+                    "What role functions are you targeting? Provide a comma-separated list, here are the options:\n"
+                    "Business development, Sales, Marketing, Engineering, Product, Design, Operations, Finance, Legal, Human Resources, Customer Support, Research.\n"
+                    "If you want me to try all roles, reply `skip`."
                 ),
             )
             return
@@ -192,7 +194,7 @@ class SlackBot:
         await self.web_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text="Running prospecting… this can take a bit while I enrich contacts.",
+            text="Running prospecting… this can take a couple minutes, I'll send the results in a csv file once I have them!",
         )
 
         try:

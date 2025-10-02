@@ -313,7 +313,12 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
             "Business Development Manager", "Business Development Representative", "BDR", "BD Manager",
             "VP Business Development", "Director of Business Development", "Head of Business Development",
             "Business Development Lead", "Strategic Partnerships Manager", "Partnerships Lead",
-            "Alliance Manager", "Channel Manager", "Partnerships"
+            "Alliance Manager", "Channel Manager", "Partnerships", "Partnership Manager",
+            "Strategic Partnerships", "Alliances", "Channels", "Channel Partnerships",
+            "Go To Market Partnerships", "GTM Partnerships", "Corporate Development", "Corp Dev",
+            "Growth Partnerships", "Ecosystem Partnerships", "Business Partnerships",
+            "Partner Manager", "Partner Development Manager", "Partnerships Director",
+            "Head of Partnerships", "VP Partnerships", "Director Partnerships"
         ],
         "Consulting": [
             "Consultant", "Senior Consultant", "Management Consultant", "Strategy Consultant",
@@ -359,13 +364,16 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
             "Product Marketing Manager", "PMM", "Growth Marketing Manager", "Brand Manager",
             "Marketing Coordinator", "Marketing Specialist", "Social Media Manager", "SEO Manager",
             "Demand Generation Manager", "Performance Marketing Manager", "Marketing Operations",
-            "Content Strategist", "Marketing Analyst", "Communications Manager", "PR Manager"
+            "Content Strategist", "Marketing Analyst", "Communications Manager", "PR Manager",
+            "Growth Lead", "Head of Growth", "Lifecycle Marketing", "Email Marketing Manager",
+            "Campaign Manager", "Field Marketing", "ABM Manager", "Event Marketing"
         ],
         "Operations": [
             "Operations Manager", "Operations Director", "COO", "Chief Operating Officer", "VP Operations",
             "Head of Operations", "Operations Coordinator", "Operations Analyst", "Operations Lead",
             "Business Operations Manager", "Revenue Operations", "RevOps", "Sales Operations",
-            "Marketing Operations", "Operations Specialist"
+            "Marketing Operations", "Operations Specialist", "Business Operations", "BizOps",
+            "Strategy & Operations", "Strategy and Operations"
         ],
         "Product Management": [
             "Product Manager", "Senior Product Manager", "Principal Product Manager", "Group Product Manager",
@@ -384,28 +392,62 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
             "Head of Sales", "Sales Development Representative", "SDR", "Business Development Representative",
             "Inside Sales", "Outside Sales", "Enterprise Sales", "Regional Sales Manager",
             "Territory Manager", "Sales Engineer", "Solutions Engineer", "Sales Operations",
-            "Account Manager", "Customer Success Manager", "CSM"
+            "Account Manager", "Customer Success Manager", "CSM", "Growth Sales", "Channel Sales",
+            "Partner Sales", "Alliances Sales", "Account Director", "Key Account Manager"
         ]
     }
     
-    # Build a set of all titles from the roles of interest (case-insensitive)
+    # Keyword/substring sets per function for broader matching
+    ROLE_KEYWORDS = {
+        "business development": [
+            "business development", "bd", "partnership", "alliances", "channel", "corporate development",
+            "corp dev", "ecosystem", "partner", "gtm", "go-to-market"
+        ],
+        "marketing": [
+            "marketing", "demand gen", "demand generation", "growth", "brand", "communications", "pr",
+            "seo", "content", "campaign", "field marketing", "lifecycle", "abm", "events"
+        ],
+        "sales": [
+            "sales", "account executive", "ae", "sdr", "bdr", "account manager", "customer success",
+            "csm", "solutions engineer", "sales engineer", "inside sales", "enterprise sales",
+            "channel sales", "partner sales"
+        ],
+        "operations": [
+            "operations", "revops", "revenue operations", "bizops", "business operations", "strategy & operations",
+            "strategy and operations"
+        ],
+        # Add more functions here as needed
+    }
+
+    # Build lowercase maps for lookup
+    role_functions_lower = {k.lower(): [t.lower() for t in v] for k, v in ROLE_FUNCTIONS.items()}
+    role_keywords_lower = {k.lower(): [kw.lower() for kw in v] for k, v in ROLE_KEYWORDS.items()}
+
+    # Seniority/level patterns to allow flexible matching
+    SENIORITY_HINTS = [
+        "head", "vp", "svp", "evp", "chief", "director", "manager", "lead", "principal",
+        "sr", "senior", "junior", "associate"
+    ]
+
+    # Collect targeted title strings and keyword substrings
     target_titles = set()
-    
-    # Create a case-insensitive lookup for ROLE_FUNCTIONS keys
-    role_functions_lower = {k.lower(): v for k, v in ROLE_FUNCTIONS.items()}
-    
+    target_keywords = set()
     for role in roles_of_interest:
-        role_lower = role.lower()
-        if role_lower in role_functions_lower:
-            target_titles.update([title.lower() for title in role_functions_lower[role_lower]])
-        else:
-            logger.warning(f"Role function '{role}' not found in ROLE_FUNCTIONS")
-    
-    if not target_titles:
+        key = role.lower()
+        if key in role_functions_lower:
+            target_titles.update(role_functions_lower[key])
+        if key in role_keywords_lower:
+            target_keywords.update(role_keywords_lower[key])
+        if key not in role_functions_lower and key not in role_keywords_lower:
+            logger.warning(f"Role function '{role}' not found in ROLE_FUNCTIONS/ROLE_KEYWORDS")
+
+    if not target_titles and not target_keywords:
         logger.warning(f"No matching role functions found for: {roles_of_interest}")
         return prospecting_result
-    
-    logger.info(f"Filtering for roles: {roles_of_interest} with {len(target_titles)} job titles")
+
+    logger.info(
+        f"Filtering for roles: {roles_of_interest} with {len(target_titles)} exact titles and {len(target_keywords)} keyword patterns"
+    )
     
     # Filter companies and retain only relevant employees (current role)
     filtered_companies = []
@@ -435,7 +477,26 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
                 current_position = positions[0]
 
             title = (current_position or {}).get("title", "")
-            if title and title.lower() in target_titles:
+            title_l = (title or "").lower()
+
+            def matches_role(t: str) -> bool:
+                if not t:
+                    return False
+                # Exact title list
+                if t in target_titles:
+                    return True
+                # Keyword substrings
+                for kw in target_keywords:
+                    if kw in t:
+                        return True
+                # If exact term present with seniority hints
+                for base in target_keywords:
+                    for s in SENIORITY_HINTS:
+                        if f"{s} {base}" in t or f"{base} {s}" in t:
+                            return True
+                return False
+
+            if title and matches_role(title_l):
                 # Ensure we store personId and currentTitle for later export/contact lookup
                 person_data = person.get("person", {})
                 person_id = person_data.get("id") or person.get("id")
