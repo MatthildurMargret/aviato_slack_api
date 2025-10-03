@@ -403,11 +403,11 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
             "Marketing Manager", "Marketing Director", "CMO", "Chief Marketing Officer", "VP Marketing",
             "Head of Marketing", "Content Marketing Manager", "Digital Marketing Manager",
             "Product Marketing Manager", "PMM", "Growth Marketing Manager", "Brand Manager",
-            "Marketing Coordinator", "Marketing Specialist", "Social Media Manager", "SEO Manager",
-            "Demand Generation Manager", "Performance Marketing Manager", "Marketing Operations",
+            "Marketing Coordinator", "Marketing Specialist",
+            "Marketing Operations",
             "Content Strategist", "Marketing Analyst", "Communications Manager", "PR Manager",
-            "Growth Lead", "Head of Growth", "Lifecycle Marketing", "Email Marketing Manager",
-            "Campaign Manager", "Field Marketing", "ABM Manager", "Event Marketing"
+            "Growth Lead", "Head of Growth",
+            "Campaign Manager", "Field Marketing",
         ],
         "Operations": [
             "Operations Manager", "Operations Director", "COO", "Chief Operating Officer", "VP Operations",
@@ -445,8 +445,8 @@ def role_filters(prospecting_result: Dict[str, Any], roles_of_interest: List[str
             "corp dev", "ecosystem", "partner", "gtm", "go-to-market"
         ],
         "marketing": [
-            "marketing", "demand gen", "demand generation", "growth", "brand", "communications", "pr",
-            "seo", "content", "campaign", "field marketing", "lifecycle", "abm", "events"
+            "marketing", "demand gen", "demand generation", "growth", "brand", 
+            "seo", "content", "campaign", 
         ],
         "sales": [
             "sales", "account executive", "ae", "sdr", "bdr", "account manager", "customer success",
