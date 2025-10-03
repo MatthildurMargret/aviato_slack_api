@@ -339,6 +339,11 @@ class SlackBot:
                     cm = company_map.get(row.get('companyId'))
                     if cm and cm.get('website'):
                         row['website'] = cm.get('website')
+                # Fill totalFunding from company map when missing
+                if row.get('totalFunding') in (None, ""):
+                    cm = company_map.get(row.get('companyId'))
+                    if cm and cm.get('totalFunding') is not None:
+                        row['totalFunding'] = cm.get('totalFunding')
                 # Normalize industry list to string for CSV
                 il = row.get("industryList")
                 if isinstance(il, list):
