@@ -163,7 +163,7 @@ def build_filters_from_text(query_text: str) -> Dict[str, Any]:
     return filters
 
 
-def prospect_companies(query_text: str, enrich_with_people: bool = True, enrich_limit: int = 50, roles_of_interest: List[str] = None) -> Dict[str, Any]:
+def prospect_companies(query_text: str, enrich_with_people: bool = True, enrich_limit: int = 100, roles_of_interest: List[str] = None) -> Dict[str, Any]:
     """
     Convenience wrapper used by the Slack command. Accepts a lightweight text query,
     builds filters, and calls the Aviato company search. 

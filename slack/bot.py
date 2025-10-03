@@ -211,7 +211,7 @@ class SlackBot:
 
         try:
             # Run synchronous prospecting in a thread to avoid blocking the event loop
-            result = await asyncio.to_thread(prospect_companies, filters_text, True, 50, roles)
+            result = await asyncio.to_thread(prospect_companies, filters_text, True, 100, roles)
 
             items = (result or {}).get("items", [])
             contacts = (result or {}).get("contacts", [])
