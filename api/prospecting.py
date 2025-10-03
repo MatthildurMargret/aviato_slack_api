@@ -1,5 +1,6 @@
 import logging
 from typing import Dict, Any, List
+import re
 
 from api.search import search_aviato_companies
 from api.enrich_company import get_founders, get_employees
@@ -28,11 +29,51 @@ def _coerce_value(key: str, value: str):
     key_lower = key.lower()
     v = value.strip()
 
+    def _parse_number_like(s: str):
+        """Best-effort parsing for numeric inputs that may come from Slack formatting.
+        Handles:
+        - Slack tel autolinks: <tel:10000000|10000000> -> 10000000
+        - Currency symbols and commas: $10,000,000 -> 10000000
+        - Shorthand: 10k, 10m, 1.2b -> scaled integer
+        Returns int on success; raises ValueError on failure.
+        """
+        if not s:
+            raise ValueError("empty")
+        s = s.strip()
+        # Extract from Slack tel format
+        m = re.match(r"^<tel:(\d+)\|[^>]+>$", s)
+        if m:
+            s = m.group(1)
+        # Remove surrounding angle link if someone pasted <123|123>
+        m2 = re.match(r"^<([0-9,.$kmbKMB]+)\|[^>]+>$", s)
+        if m2:
+            s = m2.group(1)
+
+        # Normalize currency formatting
+        s_norm = s.replace(",", "").replace(" ", "").lstrip("$")
+        lower = s_norm.lower()
+        multiplier = 1
+        if lower.endswith("k"):
+            multiplier = 1_000
+            s_norm = lower[:-1]
+        elif lower.endswith("m"):
+            multiplier = 1_000_000
+            s_norm = lower[:-1]
+        elif lower.endswith("b"):
+            multiplier = 1_000_000_000
+            s_norm = lower[:-1]
+        # Allow decimals for k/m/b then cast to int
+        if multiplier != 1:
+            val = float(s_norm)
+            return int(val * multiplier)
+        # Plain integer string
+        return int(s_norm)
+
     if key_lower in ("totalfunding", "totalfunding_gte", "totalfunding_lte", "founded"):
         # try to coerce integers; if it fails, leave as string
         try:
-            return int(v)
-        except ValueError:
+            return _parse_number_like(v)
+        except Exception:
             return v
 
     # industries can be comma-separated list inside the value
