@@ -44,6 +44,8 @@ def enrich_company(company_website=None, company_linkedin_url=None):
     Enrich company data using website URL via Aviato API.
     Returns the raw company data from the API.
     """
+    # Use global rate limiter
+    _wait_for_rate_limit()
 
     if company_website:
         response = requests.get(
@@ -146,14 +148,33 @@ def parse_enrich_response(response):
     return parsed_data
 
 def get_acq(company_id):
-    response = requests.get(
-            "https://data.api.aviato.co/company/" + company_id + "/acquisitions?perPage=100&page=1",
-            headers={
-                "Authorization": "Bearer " + aviato_api
-            },
-    )
-    result = response.json()
-    return result["acquisitions"]
+    try:
+        # Use global rate limiter
+        _wait_for_rate_limit()
+        
+        response = requests.get(
+                "https://data.api.aviato.co/company/" + company_id + "/acquisitions?perPage=100&page=1",
+                headers={
+                    "Authorization": "Bearer " + aviato_api
+                },
+        )
+        
+        if response.status_code != 200:
+            logger.warning(f"get_acq returned status {response.status_code} for company {company_id}")
+            return []
+        
+        if not response.text.strip():
+            logger.warning(f"get_acq returned empty response for company {company_id}")
+            return []
+        
+        result = response.json()
+        return result.get("acquisitions", [])
+    except (ValueError, requests.exceptions.JSONDecodeError) as e:
+        logger.error(f"get_acq JSON decode error for company {company_id}: {e} | Snippet: {response.text[:200] if 'response' in locals() else 'N/A'}")
+        return []
+    except Exception as e:
+        logger.error(f"get_acq error for company {company_id}: {e}")
+        return []
         
 
 def get_founders(company_id):
@@ -245,14 +266,33 @@ def get_employees(company_id):
     return []
 
 def get_investors(company_id):
-    response = requests.get(
-            "https://data.api.aviato.co/company/" + company_id + "/investments?perPage=100&page=1",
-            headers={
-                "Authorization": "Bearer " + aviato_api
-            },
-    )
-    result = response.json()
-    return result["investments"]
+    try:
+        # Use global rate limiter
+        _wait_for_rate_limit()
+        
+        response = requests.get(
+                "https://data.api.aviato.co/company/" + company_id + "/investments?perPage=100&page=1",
+                headers={
+                    "Authorization": "Bearer " + aviato_api
+                },
+        )
+        
+        if response.status_code != 200:
+            logger.warning(f"get_investors returned status {response.status_code} for company {company_id}")
+            return []
+        
+        if not response.text.strip():
+            logger.warning(f"get_investors returned empty response for company {company_id}")
+            return []
+        
+        result = response.json()
+        return result.get("investments", [])
+    except (ValueError, requests.exceptions.JSONDecodeError) as e:
+        logger.error(f"get_investors JSON decode error for company {company_id}: {e} | Snippet: {response.text[:200] if 'response' in locals() else 'N/A'}")
+        return []
+    except Exception as e:
+        logger.error(f"get_investors error for company {company_id}: {e}")
+        return []
 
 
 def complete_company_enrichment(company_website=None, company_linkedin_url=None):
